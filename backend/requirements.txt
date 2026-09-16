@@ -1,0 +1,14 @@
+# --- 웹 프레임워크 ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+
+# --- 설정 / 환경변수 ---
+python-dotenv>=1.0.1
+
+# --- 데이터베이스 ---
+firebase-admin>=6.5.0
+
+# --- AI provider (둘 다 설치, 환경변수 AI_PROVIDER로 선택) ---
+google-genai>=1.0.0
+openai>=1.54.0
