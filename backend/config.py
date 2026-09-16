@@ -99,6 +99,24 @@ class Settings:
         return bool(self.gemini_api_key)
 
     @property
+    def active_ai_key(self) -> str:
+        return self.openai_api_key if self.ai_provider == "openai" else self.gemini_api_key
+
+    @property
+    def ai_key_check(self) -> dict:
+        """
+        키 '형식'만 점검한다 (값은 노출하지 않음). 대시보드에 다른 값을 잘못 붙여넣은 경우를 찾기 위함.
+        Gemini 키는 'AIza…' 또는 'AQ.…', OpenAI 키는 'sk-…' 로 시작하며 공백·줄바꿈이 없다.
+        """
+        key = self.active_ai_key
+        prefixes = ("sk-",) if self.ai_provider == "openai" else ("AIza", "AQ.")
+        return {
+            "length": len(key),
+            "expected_prefix": key.startswith(prefixes),
+            "single_line_ascii": key.isascii() and not any(c.isspace() for c in key),
+        }
+
+    @property
     def is_firebase_configured(self) -> bool:
         if self.firebase_service_account_json:
             return True
@@ -111,6 +129,7 @@ class Settings:
             "ai_provider": self.ai_provider,
             "ai_model": self.ai_model,
             "ai_key_configured": self.is_ai_key_configured,
+            "ai_key_check": self.ai_key_check,
             "firebase_configured": self.is_firebase_configured,
             "allowed_origins": self.allowed_origins,
             "max_output_tokens": self.max_output_tokens,

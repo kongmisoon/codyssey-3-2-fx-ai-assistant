@@ -26,6 +26,23 @@ class AIServiceError(Exception):
         self.status_code = status_code
 
 
+def _require_valid_key(key: str, env_name: str) -> None:
+    """
+    키 형식을 AI 호출 '전에' 확인한다.
+    줄바꿈·공백·한글이 섞인 값(예: 다른 환경변수의 JSON 을 잘못 붙여넣은 경우)을 그대로 보내면
+    HTTP 라이브러리가 헤더 오류를 내면서 그 값을 예외 메시지에 담는다 → 로그에 비밀값이 남을 수 있다.
+    그래서 형식이 틀리면 외부 호출 없이 바로 멈춘다.
+    """
+    if not key:
+        raise AIServiceError(f"{env_name} 가 설정되지 않았습니다.", status_code=500)
+    if not key.isascii() or any(c.isspace() for c in key):
+        raise AIServiceError(
+            f"{env_name} 값의 형식이 올바르지 않습니다(줄바꿈·공백·한글 포함). "
+            "환경변수에 API 키만 정확히 넣었는지 확인해 주세요.",
+            status_code=500,
+        )
+
+
 # ---------------------------------------------------------------- Gemini
 
 
@@ -47,8 +64,7 @@ def _generate_with_gemini(system_prompt: str, messages: list[dict]) -> str:
     from google import genai
 
     settings = get_settings()
-    if not settings.gemini_api_key:
-        raise AIServiceError("GEMINI_API_KEY 가 설정되지 않았습니다.", status_code=500)
+    _require_valid_key(settings.gemini_api_key, "GEMINI_API_KEY")
 
     # OpenAI 형식 → Gemini 형식 변환
     #   role: "assistant" → "model",  content → parts[{text}]
@@ -97,8 +113,7 @@ def _generate_with_openai(system_prompt: str, messages: list[dict]) -> str:
     from openai import OpenAI
 
     settings = get_settings()
-    if not settings.openai_api_key:
-        raise AIServiceError("OPENAI_API_KEY 가 설정되지 않았습니다.", status_code=500)
+    _require_valid_key(settings.openai_api_key, "OPENAI_API_KEY")
 
     # OpenAI 는 시스템 프롬프트를 messages 맨 앞에 넣는다.
     payload = [{"role": "system", "content": system_prompt}] + [
@@ -138,7 +153,7 @@ def _translate_error(exc: Exception) -> AIServiceError:
 
     if "authentication" in name or "permissiondenied" in name or "api key" in text or "401" in text:
         return AIServiceError(
-            "AI API 키가 올바르지 않습니다. .env 의 키 값을 다시 확인해 주세요.", status_code=500
+            "AI API 키가 올바르지 않습니다. 환경변수의 키 값을 다시 확인해 주세요.", status_code=500
         )
     if "ratelimit" in name or "resourceexhausted" in name or "429" in text or "quota" in text:
         return AIServiceError(
@@ -156,7 +171,7 @@ def _translate_error(exc: Exception) -> AIServiceError:
         or "no longer available" in text
     ):
         return AIServiceError(
-            "설정한 AI 모델을 사용할 수 없습니다. .env 의 모델 이름(GEMINI_MODEL / OPENAI_MODEL)을 확인해 주세요.",
+            "설정한 AI 모델을 사용할 수 없습니다. 환경변수의 모델 이름(GEMINI_MODEL / OPENAI_MODEL)을 확인해 주세요.",
             status_code=500,
         )
     return AIServiceError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.", status_code=502)

@@ -10,7 +10,9 @@ main.py — FastAPI 애플리케이션의 입구.
 비즈니스 로직은 이 파일에 쓰지 않는다. 계산은 services/, HTTP 처리는 routers/ 담당.
 """
 
+import json
 import logging
+import re
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -65,10 +67,41 @@ async def handle_service_error(request: Request, exc: ServiceError):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 
+_PRIVATE_KEY_RE = re.compile(r"-----BEGIN[^-]*PRIVATE KEY-----.*?-----END[^-]*PRIVATE KEY-----", re.S)
+
+
+def _redact(text: str) -> str:
+    """
+    로그에 API 키·서비스 계정 키가 섞여 들어가지 않도록 가린다.
+    예외 메시지 안에서는 값이 repr(줄바꿈이 \\n 으로 표시)이나 JSON 이스케이프 형태로 나타날 수 있어
+    원문뿐 아니라 그 변형들도 함께 지운다.
+    """
+    for secret in (settings.gemini_api_key, settings.openai_api_key, settings.firebase_service_account_json):
+        if not secret or len(secret) < 8:
+            continue
+        variants = {
+            secret,
+            repr(secret)[1:-1],
+            repr(secret.encode("utf-8", "replace"))[2:-1],
+            json.dumps(secret)[1:-1],
+        }
+        for variant in variants:
+            text = text.replace(variant, "***")
+    text = _PRIVATE_KEY_RE.sub("***PRIVATE KEY***", text)
+    return text[:300]
+
+
 @app.exception_handler(AIServiceError)
 async def handle_ai_error(request: Request, exc: AIServiceError):
     # ai_service 가 이미 사용자용 한국어 메시지와 상태코드(429/504/502/500)로 번역해 두었다.
-    logger.warning("AI 호출 실패 (%s): %s | 원인: %r", exc.status_code, exc.message, exc.__cause__)
+    cause = exc.__cause__
+    logger.warning(
+        "AI 호출 실패 (%s): %s | 원인: %s: %s",
+        exc.status_code,
+        exc.message,
+        type(cause).__name__ if cause else "-",
+        _redact(str(cause)) if cause else "-",
+    )
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 
