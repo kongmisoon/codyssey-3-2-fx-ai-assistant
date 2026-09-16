@@ -10,7 +10,7 @@ AI가 일반론이 아니라 **내 데이터에 근거해** 답하는 웹 서비
 
 ## 현재 상태
 
-**Phase 6 완료 — 백엔드 API 전체 완성.** 데이터 CRUD · 요약 분석 · 대화 기록 · 컨텍스트 주입 AI 채팅까지 동작합니다.
+**Phase 7 완료 — 로컬에서 전체 서비스 동작.** 백엔드 API(데이터 CRUD · 요약 · 대화 기록 · AI 채팅)와 바닐라 JS 웹 화면이 연결되어 있습니다. 남은 단계는 Render·Vercel 배포입니다.
 전체 진행 계획과 단계별 실행 프롬프트는 [3-2.md](3-2.md) 참고.
 
 ---
@@ -41,6 +41,15 @@ AI_PROVIDER=openai   # 제출 · 시연
 ## 프로젝트 구조
 
 ```
+frontend/
+├── build-config.js          # Vercel 빌드 시 API_BASE_URL → public/config.js 생성
+├── vercel.json              # 빌드 명령·출력 폴더·보안 헤더
+└── public/                  # 배포되는 정적 파일
+    ├── index.html
+    ├── style.css            # CSS 변수 기반 라이트/다크 테마, 반응형
+    ├── app.js               # 화면 로직 (프레임워크 없음)
+    └── config.js            # API 서버 주소 (로컬 기본값: http://127.0.0.1:8000)
+
 backend/
 ├── main.py                  # FastAPI 앱, CORS, 라우터 등록, 헬스체크
 ├── config.py                # 환경변수 → 설정 객체 (단일 창구)
@@ -248,6 +257,8 @@ sequenceDiagram
 
 ## 로컬 실행
 
+### 1) 백엔드
+
 ```bash
 cd backend
 python -m venv venv
@@ -291,6 +302,43 @@ uvicorn main:app --reload
 - 헬스체크: http://127.0.0.1:8000/health
 - 설정·연결 상태: http://127.0.0.1:8000/health/detail
 
+### 2) 프론트엔드
+
+새 터미널에서 정적 파일 서버를 띄웁니다. (포트 5500은 백엔드 `ALLOWED_ORIGINS` 기본값에 포함되어 있습니다)
+
+```bash
+cd frontend/public
+python -m http.server 5500
+```
+
+브라우저에서 http://localhost:5500 을 엽니다. API 주소는 `frontend/public/config.js`에서 바꿀 수 있습니다.
+
+---
+
+## 웹 화면 (프론트엔드)
+
+HTML/CSS/JavaScript만으로 만들었습니다 (프레임워크·번들러 없음).
+
+| 영역 | 기능 |
+|---|---|
+| **데이터 요약** (상단) | 최근 추세 카드(변화율·원화 강세/약세 배지·20영업일 평균 비교), 기간·최근 종가·평균·최고·최저·변동폭·기간 변화율 |
+| **채팅** (가운데) | 추천 질문 버튼, Enter 전송 / Shift+Enter 줄바꿈, 글자 수 표시, 답변 대기 표시(단계별 안내 문구), 답변마다 **"근거: 522영업일 요약"** 표시, 실패 시 "저장되지 않음" 표시 후 입력 복원 |
+| **대화 기록** (왼쪽) | 최근 대화 순 목록(제목·미리보기·시각·메시지 수), 누르면 **불러와서 이어서 대화**, 삭제 |
+| **데이터 관리** (오른쪽) | 추가 폼, 최근 30건 표(전일 대비 ▲▼), 기간 조회, **행 안에서 바로 수정**(Enter 저장 / Esc 취소, 날짜 변경 가능), 삭제. 변경 즉시 요약 카드 갱신 |
+| 공통 | 서버 상태 표시, 콜드스타트 안내 배너, 알림(토스트), 다크 모드(시스템 설정 따름 + 수동 전환 저장), 휴대폰에서는 탭 전환 |
+
+**Render 콜드스타트 대응** — 페이지를 열면 먼저 `/health`를 호출합니다. 2.5초 안에 응답이 없으면
+"서버를 깨우는 중" 배너와 경과 시간을 보여 주고, 3초 간격으로 최대 90초까지 다시 시도합니다.
+서버가 깨어나면 배너를 닫고 데이터를 불러오며, 끝내 실패하면 "다시 시도" 버튼을 보여 줍니다.
+채팅 요청은 AI 응답 시간까지 고려해 90초까지 기다립니다.
+
+**보안** — 서버에서 받은 글자(AI 답변, 메모, 대화 제목)는 전부 `textContent`로만 화면에 넣고 `innerHTML`은 쓰지 않습니다.
+사용자가 메모에 `<script>`를 적어도 글자 그대로 보일 뿐 실행되지 않습니다(XSS 차단).
+
+**API 주소 주입** — 정적 사이트는 브라우저에서 서버 환경변수를 읽을 수 없습니다. 그래서 Vercel 빌드 단계에서
+`build-config.js`가 환경변수 `API_BASE_URL`로 `public/config.js`를 새로 만듭니다.
+배포 환경에서 값이 없거나 `https`가 아니면 **빌드를 실패**시켜, 배포본이 `localhost`를 가리키는 사고를 막습니다.
+
 ---
 
 ## 환경 변수
@@ -306,6 +354,12 @@ uvicorn main:app --reload
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | 서비스 계정 키 JSON 전문 (배포용) | `{"type":"service_account",...}` |
 | `GOOGLE_APPLICATION_CREDENTIALS` | 서비스 계정 키 파일 경로 (로컬용) | `./serviceAccountKey.json` |
 | `ALLOWED_ORIGINS` | CORS 허용 도메인 (콤마 구분) | `http://localhost:5500,https://app.vercel.app` |
+
+**프론트엔드 (Vercel)**
+
+| 이름 | 설명 | 예시 |
+|---|---|---|
+| `API_BASE_URL` | 백엔드 API 주소 (끝의 `/` 생략 가능) | `https://fx-ai-assistant.onrender.com` |
 
 > 🔐 `.env`와 서비스 계정 키 파일은 `.gitignore`에 등록되어 있습니다. 절대 커밋하지 마세요.
 

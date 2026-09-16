@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>환율 AI 비서</title>
+  <meta name="description" content="내 원/달러 환율 데이터를 근거로 답하는 AI 비서">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231f5eff'/><text x='50' y='70' font-size='58' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'>₩</text></svg>">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // 저장된 테마를 CSS 로드 직후 바로 적용해 화면 깜빡임을 막는다.
+    try {
+      var saved = localStorage.getItem("fx-theme");
+      if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+    } catch (e) { /* 저장소 접근 불가 시 시스템 설정을 따른다 */ }
+  </script>
+  <script src="config.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-tab="chat">
+  <div class="app">
+    <div id="server-banner" class="banner" role="status" hidden>
+      <span class="banner-spinner" aria-hidden="true"></span>
+      <span id="banner-text">서버를 깨우는 중입니다. 무료 서버는 한동안 쓰지 않으면 잠들어서, 첫 접속에 최대 50초가 걸릴 수 있어요.</span>
+      <span id="banner-elapsed" class="banner-elapsed"></span>
+      <button id="banner-retry" class="btn tiny" type="button" hidden>다시 시도</button>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">₩</span>
+        <div>
+          <h1>환율 AI 비서</h1>
+          <p>내 USD/KRW 데이터를 근거로 답하는 대화형 분석</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="server-status" class="status-pill" data-state="checking">
+          <span class="status-dot" aria-hidden="true"></span><span class="status-text">서버 확인 중</span>
+        </span>
+        <button id="theme-toggle" class="icon-btn" type="button" aria-label="다크 모드로 전환" title="테마 전환">
+          <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 데이터 요약 -->
+    <section class="summary" aria-labelledby="summary-heading">
+      <h2 id="summary-heading" class="sr-only">데이터 요약</h2>
+      <div class="trend-card" id="trend-card" data-dir="loading">
+        <div class="trend-top">
+          <span class="eyebrow">최근 추세</span>
+          <span id="trend-badge" class="trend-badge">불러오는 중</span>
+        </div>
+        <div id="trend-change" class="trend-change">–</div>
+        <p id="trend-desc" class="trend-desc">요약을 불러오는 중입니다.</p>
+      </div>
+      <dl id="summary-grid" class="summary-grid" aria-busy="true"></dl>
+    </section>
+
+    <!-- 좁은 화면용 탭 -->
+    <nav class="tabs" aria-label="화면 전환">
+      <button type="button" class="tab" data-tab="chat" aria-pressed="true">채팅</button>
+      <button type="button" class="tab" data-tab="history" aria-pressed="false">대화 기록</button>
+      <button type="button" class="tab" data-tab="data" aria-pressed="false">데이터 관리</button>
+    </nav>
+
+    <main class="layout">
+      <!-- 대화 기록 -->
+      <aside class="panel" data-panel="history" aria-labelledby="history-heading">
+        <div class="panel-head">
+          <div>
+            <h2 id="history-heading">대화 기록</h2>
+            <p class="panel-sub">누르면 이어서 대화할 수 있어요</p>
+          </div>
+          <button id="history-refresh" class="icon-btn" type="button" aria-label="대화 기록 새로고침" title="새로고침">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+          </button>
+        </div>
+        <div class="panel-scroll">
+          <ul id="history-list" class="history-list" aria-busy="true"></ul>
+          <p id="history-empty" class="empty" hidden>아직 저장된 대화가 없어요.<br>첫 질문을 보내면 자동으로 저장됩니다.</p>
+        </div>
+      </aside>
+
+      <!-- 채팅 -->
+      <section class="panel chat" data-panel="chat" aria-labelledby="chat-title">
+        <div class="panel-head">
+          <div class="chat-heading">
+            <h2 id="chat-title">새 대화</h2>
+            <p id="chat-sub" class="panel-sub">저장된 환율 데이터 요약을 근거로 답합니다</p>
+          </div>
+          <button id="new-chat" class="btn ghost" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>새 대화
+          </button>
+        </div>
+
+        <div id="chat-log" class="chat-log" role="log" aria-live="polite" aria-relevant="additions">
+          <div id="chat-empty" class="chat-empty">
+            <p class="eyebrow">무엇이든 물어보세요</p>
+            <h3>내 환율 데이터로 답하는 AI</h3>
+            <p id="chat-empty-desc">질문을 보내면 서버가 저장된 환율 데이터를 요약해 AI에게 함께 전달합니다.</p>
+            <div id="suggestions" class="chips" aria-label="추천 질문"></div>
+          </div>
+        </div>
+
+        <form id="chat-form" class="composer" autocomplete="off">
+          <label for="chat-input" class="sr-only">질문 입력</label>
+          <textarea id="chat-input" rows="1" maxlength="2000" placeholder="예) 최근 환율 추세가 어때?"></textarea>
+          <div class="composer-foot">
+            <span class="hint">Enter 보내기 · Shift+Enter 줄바꿈</span>
+            <span id="chat-count" class="hint count">0 / 2000</span>
+            <button id="chat-send" class="btn primary" type="submit">
+              <span class="send-label">보내기</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- 데이터 관리 -->
+      <aside class="panel" data-panel="data" aria-labelledby="data-heading">
+        <div class="panel-head">
+          <div>
+            <h2 id="data-heading">데이터 관리</h2>
+            <p id="data-count" class="panel-sub">불러오는 중</p>
+          </div>
+        </div>
+
+        <form id="data-form" class="data-form" novalidate>
+          <div class="field">
+            <label for="f-date">날짜</label>
+            <input id="f-date" name="date" type="date" required>
+          </div>
+          <div class="field">
+            <label for="f-value">환율 (원)</label>
+            <input id="f-value" name="value" type="number" step="0.01" min="500" max="5000" inputmode="decimal" placeholder="1355.41" required>
+          </div>
+          <div class="field span-2">
+            <label for="f-memo">메모 <span class="optional">선택</span></label>
+            <input id="f-memo" name="memo" type="text" maxlength="200" placeholder="예) FOMC 금리 동결 발표">
+          </div>
+          <button id="data-submit" class="btn primary span-2" type="submit">데이터 추가</button>
+        </form>
+
+        <div class="data-filter" role="group" aria-label="기간 조회">
+          <div class="field">
+            <label for="filter-start">시작일</label>
+            <input id="filter-start" type="date">
+          </div>
+          <div class="field">
+            <label for="filter-end">종료일</label>
+            <input id="filter-end" type="date">
+          </div>
+          <button id="filter-apply" class="btn ghost" type="button">조회</button>
+          <button id="filter-reset" class="btn ghost" type="button">최근 30건</button>
+        </div>
+
+        <div class="panel-scroll table-wrap">
+          <table class="data-table">
+            <caption class="sr-only">환율 데이터 목록 (최신순)</caption>
+            <thead>
+              <tr>
+                <th scope="col">날짜</th>
+                <th scope="col" class="num">환율</th>
+                <th scope="col" class="num">전일비</th>
+                <th scope="col">메모</th>
+                <th scope="col"><span class="sr-only">관리</span></th>
+              </tr>
+            </thead>
+            <tbody id="data-body" aria-busy="true"></tbody>
+          </table>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="toast-region" class="toasts" aria-live="polite"></div>
+</body>
+</html>
