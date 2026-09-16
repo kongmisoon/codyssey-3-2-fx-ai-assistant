@@ -53,7 +53,7 @@ class Settings:
         self.ai_provider: str = _env_str("AI_PROVIDER", "gemini").lower()
 
         self.gemini_api_key: str = _env_str("GEMINI_API_KEY")
-        self.gemini_model: str = _env_str("GEMINI_MODEL", "gemini-2.5-flash")
+        self.gemini_model: str = _env_str("GEMINI_MODEL", "gemini-3.6-flash")
 
         self.openai_api_key: str = _env_str("OPENAI_API_KEY")
         self.openai_model: str = _env_str("OPENAI_MODEL", "gpt-4o-mini")

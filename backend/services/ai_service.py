@@ -29,6 +29,19 @@ class AIServiceError(Exception):
 # ---------------------------------------------------------------- Gemini
 
 
+def _gemini_thinking_config(model: str) -> dict:
+    """
+    Gemini 는 답하기 전에 '사고(thinking)'를 하며 출력 토큰을 소모한다.
+    max_output_tokens 를 500 으로 묶어둔 상태에서 사고가 길어지면 정작 답변이 잘리므로 최소화한다.
+    세대별로 설정 방식이 다르다:
+      - 2.x 계열: thinking_budget(토큰 수) → 0 이면 끔
+      - 3.x 이후: thinking_level(단계)     → "minimal" 이 가장 짧음
+    """
+    if model.startswith("gemini-2"):
+        return {"thinking_budget": 0}
+    return {"thinking_level": "minimal"}
+
+
 def _generate_with_gemini(system_prompt: str, messages: list[dict]) -> str:
     # 지연 임포트: openai 만 쓰는 사람이 google-genai 미설치로 앱이 죽는 일을 막는다.
     from google import genai
@@ -55,10 +68,7 @@ def _generate_with_gemini(system_prompt: str, messages: list[dict]) -> str:
         "system_instruction": system_prompt,
         "max_output_tokens": settings.max_output_tokens,
         "temperature": settings.ai_temperature,
-        # 2.5 계열은 기본으로 '사고(thinking)'에 출력 토큰을 소모한다.
-        # max_output_tokens 를 500 으로 묶어둔 상태에서 사고까지 켜두면
-        # 정작 답변이 잘려 빈 문자열이 돌아오는 일이 생기므로 꺼둔다.
-        "thinking_config": {"thinking_budget": 0},
+        "thinking_config": _gemini_thinking_config(settings.gemini_model),
     }
 
     try:
@@ -138,9 +148,15 @@ def _translate_error(exc: Exception) -> AIServiceError:
         return AIServiceError(
             "AI 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.", status_code=504
         )
-    if "notfound" in name or "model" in text and "not found" in text:
+    if (
+        "notfound" in name
+        or "404" in text
+        or "not_found" in text
+        or "not found" in text
+        or "no longer available" in text
+    ):
         return AIServiceError(
-            "설정한 AI 모델명을 찾을 수 없습니다. .env 의 모델 이름을 확인해 주세요.",
+            "설정한 AI 모델을 사용할 수 없습니다. .env 의 모델 이름(GEMINI_MODEL / OPENAI_MODEL)을 확인해 주세요.",
             status_code=500,
         )
     return AIServiceError("AI 응답 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.", status_code=502)

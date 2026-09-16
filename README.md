@@ -93,8 +93,8 @@ uvicorn main:app --reload
 | 이름 | 설명 | 예시 |
 |---|---|---|
 | `AI_PROVIDER` | 사용할 AI provider | `gemini` / `openai` |
-| `GEMINI_API_KEY` | Google AI Studio 키 | `AIza...` |
-| `GEMINI_MODEL` | Gemini 모델명 | `gemini-2.5-flash` |
+| `GEMINI_API_KEY` | Google AI Studio 키 | `AIza...` 또는 `AQ....` |
+| `GEMINI_MODEL` | Gemini 모델명 | `gemini-3.6-flash` |
 | `OPENAI_API_KEY` | OpenAI 키 | `sk-...` |
 | `OPENAI_MODEL` | GPT 모델명 | `gpt-4o-mini` |
 | `MAX_OUTPUT_TOKENS` | 응답 최대 토큰 (비용 방어) | `500` |
