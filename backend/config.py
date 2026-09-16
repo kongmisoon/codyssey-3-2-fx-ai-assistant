@@ -78,8 +78,11 @@ class Settings:
 
         # --- CORS ---
         # "a.com, b.com" 형태의 한 줄 문자열을 리스트로 쪼갠다.
+        # 브라우저가 보내는 Origin 에는 끝 슬래시가 없으므로, 'https://x.vercel.app/' 처럼 적어도 맞도록 제거한다.
         raw_origins = _env_str("ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500")
-        self.allowed_origins: list[str] = [o.strip() for o in raw_origins.split(",") if o.strip()]
+        self.allowed_origins: list[str] = [
+            o.strip().rstrip("/") for o in raw_origins.split(",") if o.strip().rstrip("/")
+        ]
 
     # ---------- 상태 점검용 헬퍼 (비밀값은 절대 반환하지 않는다) ----------
 

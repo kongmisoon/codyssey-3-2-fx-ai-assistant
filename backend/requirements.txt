@@ -1,14 +1,17 @@
+# 로컬(Python 3.14)에서 전체 테스트를 통과한 버전으로 고정한다.
+# 범위(>=)로 두면 배포 시점마다 다른 버전이 설치되어 "로컬에선 되는데 서버에선 안 되는" 문제가 생길 수 있다.
+
 # --- 웹 프레임워크 ---
-fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
-pydantic>=2.9.0
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
 
 # --- 설정 / 환경변수 ---
-python-dotenv>=1.0.1
+python-dotenv==1.2.3
 
 # --- 데이터베이스 ---
-firebase-admin>=6.5.0
+firebase-admin==7.5.0
 
 # --- AI provider (둘 다 설치, 환경변수 AI_PROVIDER로 선택) ---
-google-genai>=1.0.0
-openai>=1.54.0
+google-genai==2.23.0
+openai==3.14.1

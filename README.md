@@ -75,13 +75,15 @@ backend/
 │   ├── test_prompt_builder.py    # 시스템 프롬프트 조립
 │   └── test_chat_service.py      # 채팅 흐름 (AI·DB를 가짜로 대체)
 ├── scripts/
+│   ├── copy_firebase_json.py  # 키 파일 → 한 줄 JSON 클립보드 복사 (copy_firebase_json.bat 더블클릭)
 │   ├── check_setup.py       # 환경 점검 스크립트
 │   ├── seed_data.py         # CSV → Firestore 적재
 │   ├── smoke_data_api.py    # /api/data 통합 검증 (32개 케이스)
 │   ├── smoke_conversations_api.py  # /api/conversations 통합 검증 (41개 케이스)
 │   ├── smoke_chat_api.py    # /api/chat 실제 AI 검증 (24개 케이스, AI 6회 호출)
 │   └── set_key.py           # .env 에 API 키 저장 헬퍼 (set_key.bat 더블클릭)
-├── requirements.txt
+├── requirements.txt         # 테스트를 통과한 버전으로 고정
+├── .python-version          # Render 가 사용할 Python 버전 (3.14)
 └── .env.example
 ```
 
@@ -382,6 +384,68 @@ HTML/CSS/JavaScript만으로 만들었습니다 (프레임워크·번들러 없�
 추세 판정도 환율의 낮은 일간 변동성을 반영해 **±0.5% / 20영업일** 기준으로 계산합니다.
 
 ---
+
+## 배포
+
+순서: **① Render(백엔드) → ② Vercel(프론트) → ③ Render 에 Vercel 주소 등록(CORS)**
+Firestore 데이터(522건)는 이미 클라우드에 있으므로 배포 후 다시 적재할 필요가 없습니다.
+
+### ① 백엔드 — Render Web Service
+
+| 설정 | 값 |
+|---|---|
+| Repository | 이 GitHub 저장소 |
+| Branch | `main` |
+| Root Directory | `backend` |
+| Language | Python 3 (버전은 `backend/.python-version` → 3.14) |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `uvicorn main:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/health` |
+| Instance Type | Free |
+
+| 환경 변수 | 값 |
+|---|---|
+| `AI_PROVIDER` | `gemini` (제출·시연 시 `openai`) |
+| `GEMINI_API_KEY` | Google AI Studio 키 |
+| `GEMINI_MODEL` | `gemini-3.6-flash` |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | 서비스 계정 키 JSON 전체 — `backend/copy_firebase_json.bat` 더블클릭 후 붙여넣기 |
+| `ALLOWED_ORIGINS` | 우선 `http://localhost:5500` → ③에서 Vercel 주소 추가 |
+| `APP_ENV` | `production` |
+
+배포가 끝나면 `https://<서비스이름>.onrender.com/docs` 에서 Swagger 를,
+`/health/detail` 에서 `ai_key_configured`·`firebase_configured`·`firestore.connected` 가 모두 `true` 인지 확인합니다.
+
+> 서비스 계정 키를 파일이 아닌 환경변수로 넣는 이유: 키 파일은 `.gitignore` 로 저장소에서 제외되어 Render 가 받을 수 없습니다.
+> `database.py` 는 환경변수 JSON 을 먼저 찾고, 대시보드에 붙여넣을 때 흔히 생기는 `private_key` 개행 깨짐(`\n`)도 자동 보정합니다.
+> 한 줄 JSON · 여러 줄 JSON · 개행 이중 이스케이프 세 형태 모두 연결되는 것을 확인했습니다.
+
+### ② 프론트엔드 — Vercel
+
+| 설정 | 값 |
+|---|---|
+| Repository | 이 GitHub 저장소 |
+| Root Directory | `frontend` |
+| Framework Preset | Other |
+| Build / Output | `vercel.json` 이 지정 (`node build-config.js` / `public`) |
+| 환경 변수 `API_BASE_URL` | ①의 Render 주소 (예: `https://fx-ai-assistant.onrender.com`) |
+
+### ③ CORS 연결
+
+Render → Environment 에서 `ALLOWED_ORIGINS` 를 `https://<프로젝트>.vercel.app,http://localhost:5500` 으로 바꾸고 저장하면 자동 재배포됩니다.
+끝에 `/` 를 붙여도 서버가 제거하므로 괜찮습니다.
+
+### 문제 해결
+
+| 증상 | 원인 · 해결 |
+|---|---|
+| 화면에 "서버에 연결할 수 없습니다", 콘솔에 `CORS` 오류 | `ALLOWED_ORIGINS` 에 Vercel 주소가 없음 → ③ |
+| Vercel 빌드 실패 `API_BASE_URL 환경변수가 없습니다` | Vercel 환경 변수 누락 → 추가 후 Redeploy |
+| Vercel 빌드 실패 `https 주소를 사용해야 합니다` | `API_BASE_URL` 이 `http://` → `https://` 로 수정 |
+| `/health/detail` 에서 `firestore.connected: false` | `FIREBASE_SERVICE_ACCOUNT_JSON` 값이 잘렸거나 비어 있음 → 다시 붙여넣기 |
+| 채팅에서 "AI API 키가 올바르지 않습니다" | `GEMINI_API_KEY` 오타·공백 → 다시 입력 |
+| 채팅에서 "설정한 AI 모델을 사용할 수 없습니다" | `GEMINI_MODEL` 이름 확인 (`gemini-3.6-flash`) |
+| 첫 접속이 50초 가까이 걸림 | Render 무료 티어 절전 해제 — 정상. 화면에 안내 배너가 표시됨 |
+| Render 빌드가 `Python` 버전 오류 | `backend/.python-version` 이 Root Directory(`backend`) 안에 있는지 확인 |
 
 ## 배포 URL
 
