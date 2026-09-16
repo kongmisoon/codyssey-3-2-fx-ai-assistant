@@ -18,7 +18,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import database
 from config import get_settings
-from routers import conversations, data
+from routers import chat, conversations, data
+from services.ai_service import AIServiceError
 from services.errors import ServiceError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -53,6 +54,7 @@ app.add_middleware(
 # --- 전역 예외 처리 ------------------------------------------------------
 # 라우터마다 try/except 를 반복하지 않고, 예외 종류별 HTTP 응답을 여기서 한 번에 정한다.
 #   ServiceError(404/409 등)   → 서비스가 정한 상태코드 + 사용자용 메시지
+#   AIServiceError             → 429(한도) / 504(시간 초과) / 502 등 + 사용자용 메시지
 #   FirebaseConfigError        → 503 (서버 설정 문제)
 #   그 외 모든 예외            → 500 + 일반 메시지 (내부 스택은 로그에만 남기고 응답엔 노출하지 않음)
 # 입력 검증 실패(422)는 FastAPI 가 Pydantic 오류를 자동으로 돌려준다.
@@ -60,6 +62,13 @@ app.add_middleware(
 
 @app.exception_handler(ServiceError)
 async def handle_service_error(request: Request, exc: ServiceError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+
+@app.exception_handler(AIServiceError)
+async def handle_ai_error(request: Request, exc: AIServiceError):
+    # ai_service 가 이미 사용자용 한국어 메시지와 상태코드(429/504/502/500)로 번역해 두었다.
+    logger.warning("AI 호출 실패 (%s): %s | 원인: %r", exc.status_code, exc.message, exc.__cause__)
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 
@@ -84,8 +93,7 @@ async def handle_unexpected_error(request: Request, exc: Exception):
 # --- 라우터 등록 ---------------------------------------------------------
 app.include_router(data.router)
 app.include_router(conversations.router)
-# Phase 6 에서 추가
-# app.include_router(chat.router)
+app.include_router(chat.router)
 
 
 # --- 기본 엔드포인트 -----------------------------------------------------

@@ -305,3 +305,62 @@ class ConversationDetail(ConversationListItem):
     """대화 1개 전체 (messages 포함)"""
 
     messages: list[ChatMessage]
+
+
+# ------------------------------------------------------------------ AI 채팅 (/api/chat)
+
+CHAT_MESSAGE_MAX = 2000
+
+
+class ChatRequest(BaseModel):
+    """POST /api/chat 요청 본문"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        json_schema_extra={
+            "examples": [
+                {"message": "최근 환율 추세가 어때?"},
+                {"message": "가장 환율이 높았던 날은?", "conversation_id": "이전 응답의 conversation_id"},
+            ]
+        },
+    )
+
+    message: str = Field(..., min_length=1, max_length=CHAT_MESSAGE_MAX, description="사용자 질문")
+    conversation_id: Optional[str] = Field(
+        None,
+        pattern=CONVERSATION_ID_PATTERN,
+        description="이어서 대화할 때 이전 응답의 conversation_id. 생략하면 새 대화를 만든다.",
+    )
+
+    @field_validator("conversation_id", mode="before")
+    @classmethod
+    def _blank_id_to_none(cls, v):
+        return v or None  # 프론트가 빈 문자열을 보내도 '새 대화'로 처리
+
+
+class ChatContext(BaseModel):
+    """이번 답변에 주입된 데이터 요약의 핵심 — 화면에 '어떤 데이터를 근거로 답했는지' 표시할 때 사용"""
+
+    period: Optional[str]
+    count: int
+    trend_direction: str
+    trend: str
+    history_messages_used: int = Field(..., description="AI 에 함께 보낸 과거 메시지 수 (최대 20)")
+
+
+class ChatResponse(BaseModel):
+    reply: str = Field(..., description="AI 답변")
+    conversation_id: str = Field(..., description="저장된 대화 ID — 다음 질문에 그대로 보내면 이어서 대화")
+    title: str
+    message_count: int
+    context: ChatContext
+
+
+class SystemPromptResponse(BaseModel):
+    """현재 데이터 기준으로 AI 에 주입되는 시스템 프롬프트 (학습·디버깅용)"""
+
+    system_prompt: str
+    characters: int
+    period: Optional[str]
+    count: int
