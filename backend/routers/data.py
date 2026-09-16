@@ -24,8 +24,9 @@ from models.schemas import (
     FxDataResponse,
     FxDataUpdate,
     MessageResponse,
+    SummaryResponse,
 )
-from services import data_service
+from services import analysis_service, data_service
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
@@ -69,7 +70,24 @@ def list_data(
     )
 
 
-# ---- GET /api/data/summary 는 Phase 4 에서 이 위치(= {record_id} 라우트보다 위)에 추가한다 ----
+# ⚠ summary 는 반드시 /{record_id} 라우트들보다 위에 둔다 (모듈 상단 주석 참고)
+@router.get(
+    "/summary",
+    response_model=SummaryResponse,
+    summary="데이터 요약 (AI 프롬프트 주입용)",
+    description=(
+        "전체 환율 데이터의 기간·개수·평균/중앙값/최고/최저·변동폭·표준편차·기간 변화율, "
+        "최근 20영업일 추세(±0.5% 기준), 하루 최대 상승/하락, 최근 5영업일, 월별 통계를 반환한다.\n\n"
+        "전체 목록은 서버 메모리에 최대 10분간 캐시되며, 이 API 를 통한 추가·수정·삭제 시 즉시 갱신된다. "
+        "Firebase 콘솔이나 적재 스크립트로 직접 바꾼 경우 `refresh=true` 로 즉시 다시 읽을 수 있다."
+    ),
+)
+def get_summary(
+    refresh: bool = Query(False, description="캐시를 무시하고 DB 에서 다시 읽기"),
+):
+    records = data_service.get_all_records(force_refresh=refresh)
+    return analysis_service.compute_summary(records)
+
 
 
 @router.put(

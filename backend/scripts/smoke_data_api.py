@@ -52,6 +52,11 @@ def main() -> int:
     real_before = client.get("/api/data", params={"start_date": REAL, "end_date": REAL}).json()
 
     try:
+        print("\n[요약 GET /summary]")
+        base = client.get("/api/data/summary", params={"refresh": True})
+        check("요약 조회 → 200 (라우트 순서 정상)", base, 200, lambda j: j["count"] > 0 and j["metrics"])
+        base_count = base.json()["count"]
+
         print("\n[생성 POST]")
         check("정상 생성 → 201", client.post("/api/data", json={"date": A, "value": 1350.456, "memo": "  테스트  "}), 201,
               lambda j: j["id"] == A and j["value"] == 1350.46 and j["memo"] == "테스트" and j["created_at"])
@@ -63,6 +68,8 @@ def main() -> int:
         check("memo 201자 → 422", client.post("/api/data", json={"date": B, "value": 1300, "memo": "가" * 201}), 422)
         check("정의 안 된 필드 → 422", client.post("/api/data", json={"date": B, "value": 1300, "rate": 1}), 422)
         check("date 누락 → 422", client.post("/api/data", json={"value": 1300}), 422)
+        check("생성 직후 요약에 즉시 반영 (캐시 무효화)", client.get("/api/data/summary"), 200,
+              lambda j: j["count"] == base_count + 1 and j["end_date"] == A and j["metrics"]["last_rate"] == 1350.46)
 
         print("\n[조회 GET]")
         check("기간 조회 → A 포함", client.get("/api/data", params={"start_date": "2099-01-01", "end_date": "2099-12-31"}), 200,
@@ -78,6 +85,8 @@ def main() -> int:
         print("\n[수정 PUT]")
         check("value·memo 수정 → 200", client.put(f"/api/data/{A}", json={"value": 1400, "memo": "수정됨"}), 200,
               lambda j: j["value"] == 1400 and j["memo"] == "수정됨" and j["date"] == A)
+        check("수정 직후 요약에 즉시 반영", client.get("/api/data/summary"), 200,
+              lambda j: j["metrics"]["last_rate"] == 1400)
         check("memo=null → 빈 문자열로 비우기", client.put(f"/api/data/{A}", json={"memo": None}), 200,
               lambda j: j["memo"] == "" and j["value"] == 1400)
         check("빈 본문 {} → 422", client.put(f"/api/data/{A}", json={}), 422)
@@ -95,6 +104,8 @@ def main() -> int:
         print("\n[삭제 DELETE]")
         check("삭제 → 200", client.delete(f"/api/data/{B}"), 200, lambda j: j["id"] == B)
         check("다시 삭제 → 404", client.delete(f"/api/data/{B}"), 404)
+        check("삭제 직후 요약이 원래대로 복귀", client.get("/api/data/summary"), 200,
+              lambda j: j["count"] == base_count and j["end_date"] != B)
 
         print("\n[실데이터 보호]")
         real_after = client.get("/api/data", params={"start_date": REAL, "end_date": REAL}).json()

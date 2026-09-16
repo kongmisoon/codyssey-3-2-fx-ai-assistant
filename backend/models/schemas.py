@@ -15,7 +15,7 @@ models/schemas.py — API 가 주고받는 데이터의 "모양"과 "규칙"을 
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -144,3 +144,86 @@ class MessageResponse(BaseModel):
 
     message: str
     id: str
+
+
+# ------------------------------------------------------------------ 요약 (GET /api/data/summary)
+
+
+class SummaryMetrics(BaseModel):
+    average: float = Field(..., description="평균 환율")
+    median: float = Field(..., description="중앙값")
+    max: float = Field(..., description="최고 환율")
+    max_date: str = Field(..., description="최고 환율 날짜 (동률이면 가장 이른 날)")
+    min: float = Field(..., description="최저 환율")
+    min_date: str = Field(..., description="최저 환율 날짜 (동률이면 가장 이른 날)")
+    range: float = Field(..., description="변동폭 (최고 - 최저)")
+    std: float = Field(..., description="표준편차 (표본, n-1)")
+    first_date: str
+    first_rate: float = Field(..., description="기간 첫날 환율")
+    last_date: str
+    last_rate: float = Field(..., description="기간 마지막 날 환율")
+    total_change_pct: float = Field(..., description="기간 전체 변화율 (%)")
+
+
+class DailyMove(BaseModel):
+    date: str
+    change_pct: float = Field(..., description="전 영업일 대비 변화율 (%)")
+    value: float
+
+
+class DailyValue(BaseModel):
+    date: str
+    value: float
+
+
+class MonthlyStat(BaseModel):
+    month: str = Field(..., description="YYYY-MM")
+    average: float
+    min: float
+    max: float
+    count: int = Field(..., description="해당 월 영업일 수")
+    change_pct: Optional[float] = Field(None, description="전월 평균 대비 변화율 (%), 첫 달은 null")
+
+
+class SummaryResponse(BaseModel):
+    """
+    데이터 요약 — 프론트 요약 카드와 AI 시스템 프롬프트에 함께 쓰인다.
+    환율의 합계(total)는 의미가 없어 제공하지 않고, 대신 변동폭·표준편차·기간 변화율을 제공한다.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "period": "2024-09-05 ~ 2026-09-04",
+                    "count": 522,
+                    "unit": "KRW/USD",
+                    "trend_direction": "down",
+                    "trend": "원화 강세 (환율 하락) — 최근 20영업일 평균 1,360.12원, 직전 20영업일 평균 1,380.45원 대비 -1.47%",
+                }
+            ]
+        }
+    )
+
+    period: Optional[str] = Field(None, description="'시작일 ~ 종료일'")
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    count: int = Field(..., description="레코드 수 (영업일)")
+    unit: str
+    metrics: Optional[SummaryMetrics] = Field(None, description="데이터가 없으면 null")
+
+    recent_avg: Optional[float] = Field(None, description="최근 N영업일 평균")
+    previous_avg: Optional[float] = Field(None, description="그 직전 N영업일 평균")
+    change_pct: Optional[float] = Field(None, description="recent_avg 의 previous_avg 대비 변화율 (%)")
+    trend_direction: Literal["up", "down", "flat", "insufficient", "none"] = Field(
+        ..., description="up=환율 상승(원화 약세), down=환율 하락(원화 강세), flat=보합(±0.5% 이내)"
+    )
+    trend_window: int = Field(..., description="비교에 쓴 영업일 수 N (기본 20, 데이터가 적으면 줄어듦)")
+    trend: str = Field(..., description="사람이 읽는 추세 문장")
+
+    daily_change_std_pct: Optional[float] = Field(None, description="일간 변화율의 표준편차 (%) — 변동성")
+    max_daily_rise: Optional[DailyMove] = Field(None, description="하루 최대 상승")
+    max_daily_fall: Optional[DailyMove] = Field(None, description="하루 최대 하락")
+
+    recent_days: list[DailyValue] = Field(default_factory=list, description="최근 5영업일")
+    monthly: list[MonthlyStat] = Field(default_factory=list, description="월별 통계")

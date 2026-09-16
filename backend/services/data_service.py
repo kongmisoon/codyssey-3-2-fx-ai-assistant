@@ -14,6 +14,9 @@ services/data_service.py — 환율 데이터(data 컬렉션)의 저장·조회�
 - 날짜를 바꾸는 수정은 "새 ID 로 생성 + 옛 ID 삭제"를 트랜잭션으로 묶어 한 번에 처리한다.
 """
 
+import threading
+import time
+
 from firebase_admin import firestore
 from google.api_core import exceptions as gexc
 from google.cloud.firestore_v1 import FieldFilter
@@ -22,9 +25,48 @@ from config import get_settings
 from database import get_db
 from services.errors import ConflictError, NotFoundError
 
+# 전체 레코드 캐시 — 요약 계산용
+# 요약은 522건 전체를 읽어야 하고, 챗봇은 메시지마다 요약을 쓴다.
+# 매번 읽으면 대화 1번에 Firestore 읽기 522회 → 무료 한도(하루 5만 회)로 약 95번이면 소진된다.
+# 그래서 한 번 읽은 목록을 메모리에 두고, 이 서버를 통한 쓰기(생성·수정·삭제)가 일어나면 즉시 비운다.
+# Firebase 콘솔에서 직접 고친 경우를 대비해 10분이 지나면 자동으로 다시 읽는다.
+CACHE_TTL_SECONDS = 600
+_cache_lock = threading.Lock()
+_cache: dict = {"records": None, "loaded_at": 0.0, "generation": 0}
+
 
 def _collection():
     return get_db().collection(get_settings().data_collection)
+
+
+def invalidate_cache() -> None:
+    """쓰기 직후 호출. generation 을 올려서, 진행 중이던 읽기가 옛 데이터를 캐시에 넣지 못하게 한다."""
+    with _cache_lock:
+        _cache["records"] = None
+        _cache["generation"] += 1
+
+
+def get_all_records(force_refresh: bool = False) -> list[dict]:
+    """요약 계산용 전체 레코드 [{date, value}, ...]. 캐시가 유효하면 DB 를 읽지 않는다."""
+    with _cache_lock:
+        cached = _cache["records"]
+        is_fresh = cached is not None and time.monotonic() - _cache["loaded_at"] < CACHE_TTL_SECONDS
+        if is_fresh and not force_refresh:
+            return list(cached)
+        generation = _cache["generation"]
+
+    # 필요한 두 필드만 받아온다 (전송량 절약 — 읽기 횟수 과금은 문서 수 기준이라 동일)
+    records = [
+        {"date": snap.get("date"), "value": snap.get("value")}
+        for snap in _collection().select(["date", "value"]).stream()
+    ]
+
+    with _cache_lock:
+        # 읽는 도중 쓰기가 있었다면(generation 변경) 방금 읽은 목록은 이미 낡았을 수 있으니 저장하지 않는다.
+        if _cache["generation"] == generation:
+            _cache["records"] = records
+            _cache["loaded_at"] = time.monotonic()
+    return list(records)
 
 
 def _to_record(snapshot) -> dict:
@@ -82,6 +124,7 @@ def create_record(data: dict) -> dict:
         raise ConflictError(
             f"{data['date']} 데이터가 이미 있습니다. 수정하려면 PUT /api/data/{data['date']} 를 사용하세요."
         ) from exc
+    invalidate_cache()
     # SERVER_TIMESTAMP 는 서버에서 채워지므로 실제 값을 보려면 다시 읽어야 한다.
     return _to_record(ref.get())
 
@@ -100,6 +143,7 @@ def update_record(record_id: str, changes: dict) -> dict:
             old_ref.update({**changes, "updated_at": firestore.SERVER_TIMESTAMP})
         except gexc.NotFound as exc:
             raise NotFoundError(f"{record_id} 데이터를 찾을 수 없습니다.") from exc
+        invalidate_cache()
         return _to_record(old_ref.get())
 
     # (2) 날짜가 바뀌면 문서를 새 ID 로 옮긴다 — 트랜잭션으로 원자적 처리
@@ -118,6 +162,7 @@ def update_record(record_id: str, changes: dict) -> dict:
         transaction.delete(old_ref)
 
     _move(get_db().transaction())
+    invalidate_cache()
     return _to_record(new_ref.get())
 
 
@@ -131,3 +176,4 @@ def delete_record(record_id: str) -> None:
         ref.delete(option=get_db().write_option(exists=True))
     except gexc.NotFound as exc:
         raise NotFoundError(f"{record_id} 데이터를 찾을 수 없습니다.") from exc
+    invalidate_cache()
