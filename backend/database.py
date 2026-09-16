@@ -45,14 +45,26 @@ def _load_credentials() -> credentials.Base:
     # (A) 배포 환경: JSON 전체가 환경변수 문자열로 들어온다.
     raw = settings.firebase_service_account_json
     if raw:
+        # 붙여넣기 실수를 진단할 수 있도록 '길이'와 '첫 글자'만 알려준다 (키 내용은 노출하지 않음).
+        # 정상 값은 '{' 로 시작하고 보통 2,000자 이상이다.
+        hint = f"(받은 값: {len(raw):,}자, 첫 글자 {raw[:1]!r} — 정상은 '{{' 로 시작하는 2,000자 이상)"
         try:
-            info = _normalize_private_key(json.loads(raw))
+            info = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise FirebaseConfigError(
                 "FIREBASE_SERVICE_ACCOUNT_JSON 값이 올바른 JSON 이 아닙니다. "
-                "키 파일 내용을 통째로(중괄호 포함) 붙여넣었는지 확인하세요."
+                f"키 파일 내용을 통째로(중괄호 포함) 붙여넣었는지 확인하세요. {hint}"
             ) from exc
-        return credentials.Certificate(info)
+        if not isinstance(info, dict) or info.get("type") != "service_account":
+            raise FirebaseConfigError(
+                f"FIREBASE_SERVICE_ACCOUNT_JSON 이 서비스 계정 키 형식이 아닙니다. {hint}"
+            )
+        try:
+            return credentials.Certificate(_normalize_private_key(info))
+        except ValueError as exc:
+            raise FirebaseConfigError(
+                f"FIREBASE_SERVICE_ACCOUNT_JSON 의 키 내용이 손상되었습니다(private_key 등). {hint}"
+            ) from exc
 
     # (B) 로컬 환경: 키 파일 경로
     path = settings.google_application_credentials
