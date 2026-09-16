@@ -10,7 +10,7 @@ AI가 일반론이 아니라 **내 데이터에 근거해** 답하는 웹 서비
 
 ## 현재 상태
 
-**Phase 4 완료** — 환경설정 · AI provider 추상화 · 환율 522건 적재 · 데이터 CRUD · 요약 분석 API까지 완료.
+**Phase 5 완료** — 환경설정 · AI provider 추상화 · 환율 522건 적재 · 데이터 CRUD · 요약 분석 · 대화 기록 API까지 완료.
 전체 진행 계획과 단계별 실행 프롬프트는 [3-2.md](3-2.md) 참고.
 
 ---
@@ -48,11 +48,13 @@ backend/
 ├── models/
 │   └── schemas.py           # Pydantic 요청/응답 모델 + 검증 규칙
 ├── routers/
-│   └── data.py              # /api/data CRUD + summary
+│   ├── data.py              # /api/data CRUD + summary
+│   └── conversations.py     # /api/conversations 저장·목록·불러오기·삭제
 ├── services/
-│   ├── errors.py            # 서비스 예외 (NotFound 404 / Conflict 409)
+│   ├── errors.py            # 서비스 예외 (BadRequest 400 / NotFound 404 / Conflict 409)
 │   ├── data_service.py      # Firestore CRUD 로직 + 전체 목록 캐시
 │   ├── analysis_service.py  # 요약 통계·추세 계산 (순수 함수)
+│   ├── conversation_service.py  # 대화 기록 저장·조회·이어 붙이기
 │   └── ai_service.py        # AI 호출 (provider 분기)
 ├── data/
 │   └── usdkrw_2024_2026.csv # 원/달러 환율 원본 (522영업일)
@@ -61,7 +63,8 @@ backend/
 ├── scripts/
 │   ├── check_setup.py       # 환경 점검 스크립트
 │   ├── seed_data.py         # CSV → Firestore 적재
-│   ├── smoke_data_api.py    # /api/data 통합 검증 (28개 케이스)
+│   ├── smoke_data_api.py    # /api/data 통합 검증 (32개 케이스)
+│   ├── smoke_conversations_api.py  # /api/conversations 통합 검증 (41개 케이스)
 │   └── set_key.py           # .env 에 API 키 저장 헬퍼 (set_key.bat 더블클릭)
 ├── requirements.txt
 └── .env.example
@@ -121,6 +124,32 @@ AI가 "내 데이터"로 알고 있는 내용의 전부이자, 프론트 요약 
 이 API를 통한 추가·수정·삭제 시 즉시 비웁니다. (응답 시간 약 1.9초 → 0.03초)
 Firebase 콘솔이나 적재 스크립트로 직접 바꿨다면 `?refresh=true`로 즉시 다시 읽을 수 있습니다.
 
+### 대화 기록 (`/api/conversations`)
+
+| 메서드 | 경로 | 설명 | 주요 응답 |
+|---|---|---|---|
+| `POST` | `/api/conversations` | 대화 저장 (`title` 생략 시 첫 질문 앞 20자) | 201 · 422 |
+| `GET` | `/api/conversations` | 목록 조회 — **messages 미포함** (`limit`) | 200 · 422 |
+| `GET` | `/api/conversations/{id}` | 대화 불러오기 — **전체 messages 포함** | 200 · 404 · 422 |
+| `DELETE` | `/api/conversations/{id}` | 삭제 | 200 · 404 · 422 |
+
+**불러오기 방식 — 과제 선택지 (A)**
+목록(`GET /api/conversations`)에는 제목·메시지 수·마지막 메시지 미리보기(40자)·시각만 담고, 전체 메시지는
+`GET /api/conversations/{id}`로 따로 받습니다. 대화가 쌓일수록 목록 응답에 모든 메시지를 실으면 응답이
+불필요하게 커지기 때문입니다. 목록은 최근에 대화한 순서(`updated_at` 내림차순)로 정렬됩니다.
+
+**저장 구조** — 대화 1개 = Firestore 문서 1개이고, 메시지는 배열 필드로 보관합니다.
+대화를 불러올 때 문서 하나만 읽으면 되므로 단순하고 읽기 비용이 적습니다.
+문서 크기 한도(1MB)를 넘지 않도록 메시지는 대화당 200개, 1개당 4,000자로 제한합니다.
+목록에 필요한 메시지 수·미리보기는 저장할 때 미리 계산해 두고, 목록 조회 시에는 `select()`로 messages 필드를 받아오지 않습니다.
+
+| 규칙 | 이유 |
+|---|---|
+| `role`은 `user` / `assistant`만 허용 | 시스템 프롬프트는 서버만 만든다. `system` 메시지를 저장해 뒀다가 AI에 섞어 보내는 **프롬프트 주입**을 차단 |
+| 대화 ID는 영숫자·`_`·`-` 64자 이내 | `a/b` 같은 값으로 다른 경로의 문서를 가리키는 것을 차단 |
+| 메시지 시각은 서버 시계(UTC)로 기록 | Firestore의 서버 시각 값은 배열 안에 넣을 수 없음 |
+| 메시지 추가는 트랜잭션으로 처리 | "읽기 → 한도 확인 → 쓰기"를 원자적으로. `ArrayUnion`은 내용이 같은 메시지를 하나로 합쳐버려 사용하지 않음 |
+
 ### 입력 검증 (Pydantic)
 
 | 필드 | 규칙 | 이유 |
@@ -166,6 +195,7 @@ python scripts/seed_data.py              # 전체 522건 적재
 ```bash
 python -m unittest discover -s tests -v    # 요약 계산 단위 테스트 (DB 불필요)
 python scripts/smoke_data_api.py           # /api/data 통합 검증 (실제 Firestore, 2099년 날짜만 사용)
+python scripts/smoke_conversations_api.py  # /api/conversations 통합 검증 (테스트 대화는 끝나면 삭제)
 ```
 
 서버를 띄웁니다.

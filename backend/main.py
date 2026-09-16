@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import database
 from config import get_settings
-from routers import data
+from routers import conversations, data
 from services.errors import ServiceError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -83,8 +83,8 @@ async def handle_unexpected_error(request: Request, exc: Exception):
 
 # --- 라우터 등록 ---------------------------------------------------------
 app.include_router(data.router)
-# Phase 5, 6 에서 추가
-# app.include_router(conversations.router)
+app.include_router(conversations.router)
+# Phase 6 에서 추가
 # app.include_router(chat.router)
 
 

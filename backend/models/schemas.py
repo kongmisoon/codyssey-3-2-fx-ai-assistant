@@ -227,3 +227,81 @@ class SummaryResponse(BaseModel):
 
     recent_days: list[DailyValue] = Field(default_factory=list, description="최근 5영업일")
     monthly: list[MonthlyStat] = Field(default_factory=list, description="월별 통계")
+
+
+# ------------------------------------------------------------------ 대화 기록 (/api/conversations)
+
+CONVERSATION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"  # Firestore 자동 ID(영숫자 20자)를 포함하는 안전한 범위
+MESSAGE_MAX = 4000  # 메시지 1개 최대 글자 수
+MAX_MESSAGES = 200  # 대화 1개에 담을 수 있는 최대 메시지 수 (Firestore 문서 1MB 한도 보호)
+TITLE_MAX = 100
+
+
+class ChatMessage(BaseModel):
+    """
+    대화 메시지 1개.
+    role 에 'system' 은 허용하지 않는다 — 시스템 프롬프트는 서버만 만든다.
+    클라이언트가 system 메시지를 저장해 두고 나중에 AI 에 섞어 보내는 우회(프롬프트 주입)를 막기 위함.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    role: Literal["user", "assistant"] = Field(..., description="user=사용자, assistant=AI")
+    content: str = Field(..., min_length=1, max_length=MESSAGE_MAX, description="메시지 내용")
+    timestamp: Optional[datetime] = Field(None, description="작성 시각 (생략하면 서버 시각)")
+
+
+class ConversationCreate(BaseModel):
+    """POST /api/conversations 요청 본문"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "title": "최근 환율 추세 질문",
+                    "messages": [
+                        {"role": "user", "content": "최근 환율 추세가 어때?"},
+                        {
+                            "role": "assistant",
+                            "content": "최근 20영업일 평균이 직전 대비 4.72% 낮아 원화 강세 흐름입니다.",
+                        },
+                    ],
+                }
+            ]
+        },
+    )
+
+    title: Optional[str] = Field(
+        None, max_length=TITLE_MAX, description="대화 제목 (생략하면 첫 질문 앞 20자)"
+    )
+    messages: list[ChatMessage] = Field(
+        ..., min_length=1, max_length=MAX_MESSAGES, description="메시지 목록 (1~200개)"
+    )
+
+    @field_validator("title")
+    @classmethod
+    def _blank_title_to_none(cls, v: Optional[str]) -> Optional[str]:
+        return v or None  # 공백만 보낸 제목은 자동 제목으로 대체
+
+
+class ConversationListItem(BaseModel):
+    """
+    대화 목록의 한 줄. messages 는 포함하지 않는다.
+    목록 화면에는 제목·시각·미리보기만 필요하고, 대화가 쌓일수록 전체 메시지를 내려보내면
+    응답이 불필요하게 커지기 때문이다. 전체 메시지는 GET /api/conversations/{id} 로 받는다.
+    """
+
+    id: str
+    title: str
+    message_count: int = Field(..., description="메시지 개수")
+    preview: str = Field(..., description="마지막 메시지 앞부분 (최대 40자)")
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class ConversationDetail(ConversationListItem):
+    """대화 1개 전체 (messages 포함)"""
+
+    messages: list[ChatMessage]

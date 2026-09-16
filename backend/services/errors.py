@@ -19,6 +19,12 @@ class ServiceError(Exception):
         self.message = message
 
 
+class BadRequestError(ServiceError):
+    """요청 형식은 맞지만 처리할 수 없는 경우(예: 대화 길이 한도 초과) → 400"""
+
+    status_code = 400
+
+
 class NotFoundError(ServiceError):
     """요청한 문서가 없다 → 404"""
 
