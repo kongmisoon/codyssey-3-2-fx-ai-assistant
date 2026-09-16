@@ -54,3 +54,6 @@ desktop.ini
 *.log
 .cache/
 tmp/
+
+# 로컬 도구 설정 (기기별 절대경로 포함)
+.claude/

@@ -10,7 +10,7 @@ AI가 일반론이 아니라 **내 데이터에 근거해** 답하는 웹 서비
 
 ## 현재 상태
 
-**Phase 2 완료** — 환경설정 · AI provider 추상화 레이어 · Firestore에 환율 522건 적재까지 완료.
+**Phase 3 완료** — 환경설정 · AI provider 추상화 · 환율 522건 적재 · 데이터 CRUD API까지 완료.
 전체 진행 계획과 단계별 실행 프롬프트는 [3-2.md](3-2.md) 참고.
 
 ---
@@ -45,15 +45,20 @@ backend/
 ├── main.py                  # FastAPI 앱, CORS, 라우터 등록, 헬스체크
 ├── config.py                # 환경변수 → 설정 객체 (단일 창구)
 ├── database.py              # Firestore 초기화 (싱글톤 + 인증 경로 분기)
-├── models/                  # Pydantic 스키마            (Phase 3)
-├── routers/                 # HTTP 엔드포인트            (Phase 3~6)
+├── models/
+│   └── schemas.py           # Pydantic 요청/응답 모델 + 검증 규칙
+├── routers/
+│   └── data.py              # /api/data CRUD
 ├── services/
+│   ├── errors.py            # 서비스 예외 (NotFound 404 / Conflict 409)
+│   ├── data_service.py      # Firestore CRUD 로직
 │   └── ai_service.py        # AI 호출 (provider 분기)
 ├── data/
 │   └── usdkrw_2024_2026.csv # 원/달러 환율 원본 (522영업일)
 ├── scripts/
 │   ├── check_setup.py       # 환경 점검 스크립트
 │   ├── seed_data.py         # CSV → Firestore 적재
+│   ├── smoke_data_api.py    # /api/data 통합 검증 (28개 케이스)
 │   └── set_key.py           # .env 에 API 키 저장 헬퍼 (set_key.bat 더블클릭)
 ├── requirements.txt
 └── .env.example
@@ -61,6 +66,40 @@ backend/
 
 **설계 원칙** — 라우터는 HTTP 입출력만, 서비스는 비즈니스 로직만 담당합니다.
 라우터는 어떤 AI 모델을 쓰는지 알지 못하고, `generate_reply()`만 호출합니다.
+
+서비스는 HTTP를 모르기 때문에 `HTTPException` 대신 `NotFoundError` / `ConflictError`를 던지고,
+`main.py`의 전역 예외 핸들러가 이를 404 / 409로 변환합니다. 예상하지 못한 예외는 500과 일반 메시지만
+반환하고 내부 스택은 서버 로그에만 남깁니다. 덕분에 라우터에 try/except를 반복하지 않아도 되고,
+같은 서비스 함수를 챗봇(Phase 6)이나 Function Calling 도구에서 그대로 재사용할 수 있습니다.
+
+---
+
+## API
+
+### 데이터 (`/api/data`)
+
+| 메서드 | 경로 | 설명 | 주요 응답 |
+|---|---|---|---|
+| `POST` | `/api/data` | 환율 추가 | 201 · 409(같은 날짜 존재) · 422 |
+| `GET` | `/api/data` | 목록 조회 (`start_date`, `end_date`, `limit`, `order`) | 200 · 400(기간 역전) · 422 |
+| `PUT` | `/api/data/{id}` | 부분 수정 (날짜 변경 시 문서 이동) | 200 · 404 · 409 · 422 |
+| `DELETE` | `/api/data/{id}` | 삭제 | 200 · 404 |
+
+**문서 ID = 날짜(`YYYY-MM-DD`)** — 환율은 하루에 한 값만 존재하므로, 날짜를 ID로 써서 DB 차원에서 중복을 막습니다.
+생성은 Firestore `create()`(이미 있으면 서버가 거부)로, 날짜 변경은 "새 ID 생성 + 기존 ID 삭제"를
+**트랜잭션**으로 묶어 처리하므로 중간에 다른 요청이 끼어들어도 데이터가 꼬이지 않습니다.
+
+### 입력 검증 (Pydantic)
+
+| 필드 | 규칙 | 이유 |
+|---|---|---|
+| `date` | `YYYY-MM-DD` 형식 + 실제 존재하는 날짜 | 정규식만으로는 `2026-02-30`을 못 거름 |
+| `value` | 500 ~ 5000, NaN/무한대 거부, 소수점 2자리 반올림 | 원/달러 환율의 현실적 범위, 오타(예: 13.5) 차단 |
+| `memo` | 최대 200자, 앞뒤 공백 제거 | 저장 용량·화면 표시 보호 |
+| 공통 | 정의되지 않은 필드 거부 (`extra="forbid"`) | `rate`처럼 이름을 잘못 보내면 조용히 무시되는 대신 422로 알려줌 |
+| `PUT` | 수정할 필드가 하나도 없으면 거부 | 아무 변화 없는 요청으로 `updated_at`만 바뀌는 일 방지 |
+
+잘못된 요청은 라우터 함수에 들어오기 전에 FastAPI가 422로 돌려보내므로, 서비스와 DB 코드는 검증된 데이터만 다룹니다.
 
 ---
 

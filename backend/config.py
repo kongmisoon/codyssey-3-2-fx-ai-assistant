@@ -13,10 +13,12 @@ from functools import lru_cache
 
 from dotenv import load_dotenv
 
-# .env 파일을 읽어 os.environ 에 올린다.
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# backend/.env 를 읽어 os.environ 에 올린다. (실행 위치와 무관하게 이 파일 옆의 .env 를 찾는다)
 # Render 같은 배포 환경에는 .env 파일이 없지만, 그쪽은 대시보드에서 넣은 환경변수가 이미 있으므로
-# load_dotenv() 가 아무것도 못 찾아도 정상 동작한다.
-load_dotenv()
+# 파일이 없어도 정상 동작한다. 이미 설정된 환경변수는 덮어쓰지 않는다.
+load_dotenv(os.path.join(BACKEND_DIR, ".env"))
 
 
 def _env_str(key: str, default: str = "") -> str:
@@ -65,9 +67,12 @@ class Settings:
         # --- Firebase ---
         # (A) JSON 문자열 통째로 (Render 배포용)  (B) 키 파일 경로 (로컬용)
         self.firebase_service_account_json: str = _env_str("FIREBASE_SERVICE_ACCOUNT_JSON")
-        self.google_application_credentials: str = _env_str(
-            "GOOGLE_APPLICATION_CREDENTIALS", "./serviceAccountKey.json"
-        )
+        # 상대경로는 "명령을 실행한 폴더"가 아니라 backend/ 폴더 기준으로 해석한다.
+        # (어디서 uvicorn 을 띄워도 같은 키 파일을 찾도록)
+        cred_path = _env_str("GOOGLE_APPLICATION_CREDENTIALS", "./serviceAccountKey.json")
+        if cred_path and not os.path.isabs(cred_path):
+            cred_path = os.path.normpath(os.path.join(BACKEND_DIR, cred_path))
+        self.google_application_credentials: str = cred_path
         self.data_collection: str = _env_str("DATA_COLLECTION", "data")
         self.conversation_collection: str = _env_str("CONVERSATION_COLLECTION", "conversations")
 
