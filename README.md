@@ -10,7 +10,7 @@ AI가 일반론이 아니라 **내 데이터에 근거해** 답하는 웹 서비
 
 ## 현재 상태
 
-**Phase 1 완료** — 환경설정, 프로젝트 구조, AI provider 추상화 레이어까지 구현·검증 완료.
+**Phase 2 완료** — 환경설정 · AI provider 추상화 레이어 · Firestore에 환율 522건 적재까지 완료.
 전체 진행 계획과 단계별 실행 프롬프트는 [3-2.md](3-2.md) 참고.
 
 ---
@@ -49,8 +49,12 @@ backend/
 ├── routers/                 # HTTP 엔드포인트            (Phase 3~6)
 ├── services/
 │   └── ai_service.py        # AI 호출 (provider 분기)
+├── data/
+│   └── usdkrw_2024_2026.csv # 원/달러 환율 원본 (522영업일)
 ├── scripts/
-│   └── check_setup.py       # 환경 점검 스크립트
+│   ├── check_setup.py       # 환경 점검 스크립트
+│   ├── seed_data.py         # CSV → Firestore 적재
+│   └── set_key.py           # .env 에 API 키 저장 헬퍼 (set_key.bat 더블클릭)
 ├── requirements.txt
 └── .env.example
 ```
@@ -76,7 +80,17 @@ copy .env.example .env          # macOS/Linux: cp .env.example .env
 python scripts/check_setup.py
 ```
 
-세 항목이 모두 `[OK]`면 서버를 띄웁니다.
+세 항목이 모두 `[OK]`면 환율 데이터를 Firestore에 적재합니다.
+
+```bash
+python scripts/seed_data.py --dry-run    # 미리보기 (DB에 쓰지 않음)
+python scripts/seed_data.py --limit 10   # 10건 시험 적재
+python scripts/seed_data.py              # 전체 522건 적재
+```
+
+문서 ID를 날짜(`YYYY-MM-DD`)로 쓰기 때문에 여러 번 실행해도 중복이 생기지 않습니다.
+
+서버를 띄웁니다.
 
 ```bash
 uvicorn main:app --reload
