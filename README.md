@@ -3,14 +3,23 @@
 원/달러 환율 시계열 데이터를 Firestore에 저장하고, 그 **통계 요약을 시스템 프롬프트에 주입**해
 AI가 일반론이 아니라 **내 데이터에 근거해** 답하는 웹 서비스입니다.
 
-> "최근 환율 추세가 어때?" → "최근 20영업일 평균이 이전 대비 +1.2%로 원화 약세입니다.
-> 기간 최고는 1,554.48원(2026-06-08)이었습니다."
+> **사용자:** 최근 환율 추세가 어때?
+> **AI:** 최근 20영업일 평균 환율은 1,391.76원으로, 직전 20영업일 평균인 1,460.77원 대비 4.72% 하락해 원화 강세 흐름을 보이고 있습니다.
+
+| 🌐 서비스 | 🔌 백엔드 API | 📖 API 문서 (Swagger) |
+|---|---|---|
+| **https://codyssey-3-2-fx-ai-assistant.vercel.app** | https://codyssey-3-2-fx-ai-assistant.onrender.com | https://codyssey-3-2-fx-ai-assistant.onrender.com/docs |
+
+> ⏱️ 백엔드는 Render 무료 티어라 한동안 요청이 없으면 잠듭니다. 첫 접속 시 최대 50초가 걸릴 수 있으며, 화면에 "서버를 깨우는 중" 안내가 표시됩니다.
+
+![채팅 화면](docs/screenshots/01-chat.png)
 
 ---
 
 ## 현재 상태
 
-**Phase 7 완료 — 로컬에서 전체 서비스 동작.** 백엔드 API(데이터 CRUD · 요약 · 대화 기록 · AI 채팅)와 바닐라 JS 웹 화면이 연결되어 있습니다. 남은 단계는 Render·Vercel 배포입니다.
+**필수 과제 완료 — Render(백엔드) · Vercel(프론트엔드) 배포 및 동작 확인.**
+데이터 CRUD · 요약 분석 · 대화 기록 · 컨텍스트 주입 AI 채팅 · 웹 화면이 배포 환경에서 연결되어 있습니다.
 전체 진행 계획과 단계별 실행 프롬프트는 [3-2.md](3-2.md) 참고.
 
 ---
@@ -452,9 +461,67 @@ Render → Environment 에서 `ALLOWED_ORIGINS` 를 `https://<프로젝트>.verc
 
 | 구분 | URL |
 |---|---|
-| 프론트엔드 (Vercel) | _Phase 8에서 추가_ |
-| 백엔드 API (Render) | _Phase 8에서 추가_ |
-| Swagger 문서 | _Phase 8에서 추가_ |
+| 프론트엔드 (Vercel) | https://codyssey-3-2-fx-ai-assistant.vercel.app |
+| 백엔드 API (Render) | https://codyssey-3-2-fx-ai-assistant.onrender.com |
+| Swagger 문서 | https://codyssey-3-2-fx-ai-assistant.onrender.com/docs |
+| 설정·연결 상태 | https://codyssey-3-2-fx-ai-assistant.onrender.com/health/detail |
 
 > ⏱️ Render 무료 티어는 15분간 요청이 없으면 절전 상태가 됩니다.
 > 첫 접속 시 응답까지 최대 50초가 걸릴 수 있습니다.
+
+**배포 환경 검증 결과**
+
+| 항목 | 결과 |
+|---|---|
+| `/health/detail` | Firestore 연결 · AI 키 형식 · CORS 허용 목록 정상 |
+| `/api/data/summary` | 522건, 로컬 분석과 동일한 수치 |
+| `/api/chat` | "가장 환율이 높았던 날은?" → 2026-06-08, 1,554.48원 / 이어서 "평균보다 얼마나 높아?" → 123.47원(8.63%) |
+| CORS | Vercel 도메인 허용, 그 외 도메인 차단(400) |
+| Vercel | `config.js` 에 API 주소 주입, 보안 헤더(`X-Frame-Options` 등) 적용, 저장소 내부 파일 비노출 |
+
+---
+
+## 제출 스크린샷
+
+### 1. 데이터 요약이 보이는 채팅 화면 (질문 + 답변)
+
+상단 요약 카드(추세 −4.72% 원화 강세, 522영업일, 최고·최저 등)와 함께, 답변마다 주입된 요약의 근거가 표시됩니다.
+두 번째 질문 "그럼 가장 환율이 높았던 날은 언제야?"는 앞 대화를 이어받아 답합니다.
+
+![채팅 화면](docs/screenshots/01-chat.png)
+
+### 2. 데이터 관리 화면 (추가 동작)
+
+오른쪽 폼으로 `2026-09-17 / 1,350.20원 / 시연용 추가 데이터`를 추가한 직후입니다.
+표 맨 위에 새 행이 강조되고(전일 대비 ▼5.21), 오른쪽 아래에 저장 결과 알림이 표시됩니다.
+(시연 후 해당 데이터는 삭제했습니다)
+
+![데이터 관리 화면](docs/screenshots/02-data.png)
+
+### 3. 대화 기록 화면 (불러오기 동작)
+
+왼쪽 목록에서 전날(9월 16일) 대화를 선택해 불러온 모습입니다.
+선택한 대화가 강조되고, 저장된 메시지 4개가 작성 시각과 함께 복원되며, 이어서 질문하면 같은 대화에 저장됩니다.
+
+![대화 기록 화면](docs/screenshots/03-history.png)
+
+---
+
+## 요구사항 체크리스트
+
+| # | 요구사항 | 구현 |
+|---|---|---|
+| 1 | 개발 환경 | Python 3.14 venv, fastapi · uvicorn · firebase-admin · openai · python-dotenv (+ google-genai) |
+| 2 | 데이터 선정·분석 | 원/달러 환율 522영업일, 요약(기간·개수·평균/중앙값/최고/최저·변동폭·표준편차·추세·월별) |
+| 3 | FastAPI 구성 | 라우터/서비스/모델 분리, CORS(환경변수), `/docs` |
+| 4 | Firestore 연동 | `data` · `conversations` 컬렉션, 서비스 계정 키는 환경변수 |
+| 5 | 데이터 API | `POST/GET/PUT/DELETE /api/data`, `GET /api/data/summary` |
+| 6 | 대화 기록 API | `POST/GET /api/conversations`, `GET/DELETE /api/conversations/{id}` — 방식 (A) |
+| 7 | AI 챗봇 API | `POST /api/chat` — 요약 → 시스템 프롬프트 주입 → AI 호출 → 자동 저장 |
+| 8 | Render 배포 | Swagger 접근 가능, 콜드스타트 안내 배너·재시도 |
+| 9 | 바닐라 프론트엔드 | 채팅·로딩 표시, 데이터 추가/목록/수정/삭제, 대화 목록·불러오기, 요약 카드 |
+| 10 | Vercel 배포·문서화 | `API_BASE_URL` 환경변수 빌드 주입, 이 README |
+| 보너스 | 다크 모드 | 시스템 설정 연동 + 수동 전환 저장 |
+
+> **AI provider 안내** — 현재 배포본은 비용 없이 검증하기 위해 Gemini 로 동작합니다.
+> 과제 요건(GPT API)에 맞춰 시연하려면 Render 환경변수에서 `AI_PROVIDER=openai`, `OPENAI_API_KEY` 만 설정하면 코드 수정 없이 전환됩니다.
