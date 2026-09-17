@@ -43,7 +43,8 @@ AI_PROVIDER=openai   # 제출 · 시연
 ```
 frontend/
 ├── build-config.js          # Vercel 빌드 시 API_BASE_URL → public/config.js 생성
-├── vercel.json              # 빌드 명령·출력 폴더·보안 헤더
+├── vercel.json              # Root Directory 를 frontend 로 지정했을 때의 설정
+│                            # (저장소 루트의 vercel.json 은 Root Directory 를 비워 둔 경우용)
 └── public/                  # 배포되는 정적 파일
     ├── index.html
     ├── style.css            # CSS 변수 기반 라이트/다크 테마, 반응형
@@ -424,9 +425,9 @@ Firestore 데이터(522건)는 이미 클라우드에 있으므로 배포 후 �
 | 설정 | 값 |
 |---|---|
 | Repository | 이 GitHub 저장소 |
-| Root Directory | `frontend` |
+| Root Directory | 비워 두기(저장소 루트) 또는 `frontend` — 어느 쪽이든 동작 |
 | Framework Preset | Other |
-| Build / Output | `vercel.json` 이 지정 (`node build-config.js` / `public`) |
+| Build / Output | `vercel.json` 이 지정 — 루트: `node frontend/build-config.js` → `frontend/public`, `frontend` 선택 시: `frontend/vercel.json` |
 | 환경 변수 `API_BASE_URL` | ①의 Render 주소 (예: `https://fx-ai-assistant.onrender.com`) |
 
 ### ③ CORS 연결
